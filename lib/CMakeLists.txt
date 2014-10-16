@@ -41,3 +41,4 @@ if(COMPILER_RT_HAS_UBSAN)
   add_subdirectory(ubsan)
 endif()
 
+add_subdirectory(safestack)
