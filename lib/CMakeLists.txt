@@ -37,3 +37,4 @@ if(NOT LLVM_USE_SANITIZER)
 endif()
 
 add_subdirectory(builtins)
+add_subdirectory(safestack)

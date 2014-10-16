@@ -106,6 +106,10 @@ endif
 Configs += ubsan_osx
 UniversalArchs.ubsan_osx := $(call CheckArches,i386 x86_64 x86_64h,ubsan_osx)
 
+# Configurations which define the safestack support functions.
+Configs += safestack_osx
+UniversalArchs.safestack_osx = $(call CheckArches,i386 x86_64 x86_64h,safestack_osx)
+
 # Darwin 10.6 has a bug in cctools that makes it unable to use ranlib on our ARM
 # object files. If we are on that platform, strip out all ARM archs. We still
 # build the libraries themselves so that Clang can find them where it expects
@@ -169,6 +173,10 @@ CFLAGS.asan_iossim_dynamic := \
 	-DMAC_INTERPOSE_FUNCTIONS=1
 
 CFLAGS.ubsan_osx := $(CFLAGS) -mmacosx-version-min=10.6 -fno-builtin
+
+CFLAGS.safestack_osx := \
+	$(CFLAGS) -fno-rtti -fno-exceptions -fno-builtin \
+	-fno-stack-protector -fno-safe-stack
 
 CFLAGS.ios.i386		:= $(CFLAGS) $(IOSSIM_DEPLOYMENT_ARGS)
 CFLAGS.ios.x86_64	:= $(CFLAGS) $(IOSSIM_DEPLOYMENT_ARGS)
@@ -239,6 +247,8 @@ FUNCTIONS.asan_iossim_dynamic := $(AsanFunctions) $(AsanCXXFunctions) \
 
 FUNCTIONS.ubsan_osx := $(UbsanFunctions) $(UbsanCXXFunctions) \
                        $(SanitizerCommonFunctions)
+
+FUNCTIONS.safestack_osx := $(SafeStackFunctions) $(InterceptionFunctions)
 
 CCKEXT_COMMON_FUNCTIONS := \
 	absvdi2 \

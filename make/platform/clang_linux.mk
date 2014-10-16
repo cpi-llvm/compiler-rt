@@ -50,7 +50,7 @@ endif
 # Build runtime libraries for i386.
 ifeq ($(call contains,$(SupportedArches),i386),true)
 Configs += builtins-i386 profile-i386 san-i386 asan-i386 asan_cxx-i386 \
-	   ubsan-i386 ubsan_cxx-i386
+	   ubsan-i386 ubsan_cxx-i386 safestack-i386
 Arch.builtins-i386 := i386
 Arch.profile-i386 := i386
 Arch.san-i386 := i386
@@ -58,13 +58,14 @@ Arch.asan-i386 := i386
 Arch.asan_cxx-i386 := i386
 Arch.ubsan-i386 := i386
 Arch.ubsan_cxx-i386 := i386
+Arch.safestack-i386 := i386
 endif
 
 # Build runtime libraries for x86_64.
 ifeq ($(call contains,$(SupportedArches),x86_64),true)
 Configs += builtins-x86_64 profile-x86_64 san-x86_64 asan-x86_64 asan_cxx-x86_64 \
 	   tsan-x86_64 msan-x86_64 ubsan-x86_64 ubsan_cxx-x86_64 dfsan-x86_64 \
-	   lsan-x86_64
+	   lsan-x86_64 safestack-x86_64
 Arch.builtins-x86_64 := x86_64
 Arch.profile-x86_64 := x86_64
 Arch.san-x86_64 := x86_64
@@ -76,6 +77,7 @@ Arch.ubsan-x86_64 := x86_64
 Arch.ubsan_cxx-x86_64 := x86_64
 Arch.dfsan-x86_64 := x86_64
 Arch.lsan-x86_64 := x86_64
+Arch.safestack-x86_64 := x86_64
 endif
 
 endif
@@ -110,6 +112,10 @@ CFLAGS.ubsan_cxx-i386 := $(CFLAGS) -m32 $(SANITIZER_CFLAGS)
 CFLAGS.ubsan_cxx-x86_64 := $(CFLAGS) -m64 $(SANITIZER_CFLAGS)
 CFLAGS.dfsan-x86_64 := $(CFLAGS) -m64 $(SANITIZER_CFLAGS) -fno-rtti
 CFLAGS.lsan-x86_64 := $(CFLAGS) -m64 $(SANITIZER_CFLAGS) -fno-rtti
+CFLAGS.safestack-i386 := $(CFLAGS) -m32 -fPIE -fno-builtin -fno-exceptions \
+				-fno-rtti -fno-stack-protector -fno-safe-stack
+CFLAGS.safestack-x86_64 := $(CFLAGS) -m64 -fPIE -fno-builtin -fno-exceptions \
+				-fno-rtti -fno-stack-protector -fno-safe-stack
 
 SHARED_LIBRARY.asan-arm-android := 1
 ANDROID_COMMON_FLAGS := -target arm-linux-androideabi \
@@ -156,6 +162,8 @@ FUNCTIONS.dfsan-x86_64 := $(DfsanFunctions) $(InterceptionFunctions) \
                                             $(SanitizerCommonFunctions)
 FUNCTIONS.lsan-x86_64 := $(LsanFunctions) $(InterceptionFunctions) \
                                           $(SanitizerCommonFunctions)
+FUNCTIONS.safestack-i386 := $(SafeStackFunctions) $(InterceptionFunctions)
+FUNCTIONS.safestack-x86_64 := $(SafeStackFunctions) $(InterceptionFunctions)
 
 # Always use optimized variants.
 OPTIMIZED := 1
