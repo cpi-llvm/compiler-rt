@@ -20,6 +20,7 @@
 #include <limits.h>
 #include <sys/mman.h>
 #include <sys/user.h>
+#include <sys/resource.h>
 #include <pthread.h>
 
 #if defined(__linux__)
@@ -27,11 +28,13 @@
 #include <sys/syscall.h>
 #endif
 
-// FIXME: is this in some header?
+/// Minimum stack alignment for the unsafe stack.
+/// FIXME: is this in some header?
 #define STACK_ALIGN 16
 
-// Should we make the following configurable?
-#define __SAFESTACK_DEFAULT_STACK_SIZE 0x2800000
+/// Default size of the unsafe stack. This value is only used if the stack
+/// size rlimit is set to infinity.
+#define DEFAULT_UNSAFE_STACK_SIZE 0x2800000
 
 #include "interception/interception.h"
 
@@ -260,9 +263,16 @@ void __llvm__safestack_init() {
 
   inited = 1;
 
-  // Allocate unsafe stack for main thread
-  size_t size = __SAFESTACK_DEFAULT_STACK_SIZE;
+  // Determine the stack size for the main thread.
+  size_t size = DEFAULT_UNSAFE_STACK_SIZE;
   size_t guard = 4096;
+
+  struct rlimit limit;
+  if (getrlimit(RLIMIT_STACK, &limit) != 0
+      || limit.rlim_cur == RLIM_INFINITY)
+    size = limit.rlim_cur;
+
+  // Allocate unsafe stack for main thread
   void *addr = unsafe_stack_alloc(size, guard);
   unsafe_stack_setup(addr, size, guard);
 
