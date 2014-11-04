@@ -61,33 +61,17 @@ __DECLARE_WRAPPER(pthread_setspecific)
 # define IMM_MODE "nr"
 #endif
 
-#if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))
+#if defined(__APPLE__) && (defined(__i386__) || defined(__x86_64__))
 
-# define __THREAD_GETMEM_L(offset)                        \
-  __extension__ ({ unsigned long  __v;                    \
-      asm volatile (MOVPTR " %%fs:%P1,%q0"                \
-                    : "=r" (__v) : "i" (offset)); __v; })
+  /* On Darwin, we store the unsafe stack pointer in one of the
+   * thread-specific data slots that are reserved for system libraries.
+   * Such data slots are directly accessible through the %gs segment, and
+   * are described in detail in pthreads/pthread_machdep.h in Darwin Libc.
+   * As of Libc-825, slots 0 - 255 are reserved, but only slots 0 - 119
+   * are actually used. We use slot 192, which is accessible as
+   * %gs:(192 * sizeof(void*))
+   */
 
-# define __THREAD_SETMEM_L(offset, value)                           \
-  asm volatile (MOVPTR " %q0,%%fs:%P1" :                            \
-                : IMM_MODE ((unsigned long) (value)), "i" (offset))
-
-// The following locations are platform-specific
-# define __GET_UNSAFE_STACK_PTR()         (void*) __THREAD_GETMEM_L(0x280)
-# define __SET_UNSAFE_STACK_PTR(value)    __THREAD_SETMEM_L(0x280, value)
-
-# define __GET_UNSAFE_STACK_START()       (void*) __THREAD_GETMEM_L(0x288)
-# define __SET_UNSAFE_STACK_START(value)  __THREAD_SETMEM_L(0x288, value)
-
-# define __GET_UNSAFE_STACK_SIZE()        (size_t) __THREAD_GETMEM_L(0x290)
-# define __SET_UNSAFE_STACK_SIZE(value)   __THREAD_SETMEM_L(0x290, value)
-
-# define __GET_UNSAFE_STACK_GUARD()       (size_t) __THREAD_GETMEM_L(0x298)
-# define __SET_UNSAFE_STACK_GUARD(value)  __THREAD_SETMEM_L(0x298, value)
-
-#elif defined(__APPLE__) && (defined(__i386__) || defined(__x86_64__))
-
-// OSX uses %gs to directly index thread-specific slots
 # define __THREAD_GETMEM_L(slot)                            \
   __extension__ ({ unsigned long  __v;                      \
       asm volatile (MOVPTR " %%gs:%P1,%q0" : "=r" (__v)     \
@@ -98,35 +82,37 @@ __DECLARE_WRAPPER(pthread_setspecific)
                 : IMM_MODE ((unsigned long) (value)), \
                   "i" ((slot) * sizeof(void*)))
 
-// Thread-specific slots 0-256 are reserved for the systems on OSX.
-// Slots 192 - 195 seems unused at the moment, so we claim them.
-
 // The following locations are platform-specific
 # define __GET_UNSAFE_STACK_PTR()         (void*) __THREAD_GETMEM_L(192)
 # define __SET_UNSAFE_STACK_PTR(value)    __THREAD_SETMEM_L(192, value)
 
-# define __GET_UNSAFE_STACK_START()       (void*) __THREAD_GETMEM_L(193)
-# define __SET_UNSAFE_STACK_START(value)  __THREAD_SETMEM_L(193, value)
-
-# define __GET_UNSAFE_STACK_SIZE()        (size_t) __THREAD_GETMEM_L(194)
-# define __SET_UNSAFE_STACK_SIZE(value)   __THREAD_SETMEM_L(194, value)
-
-# define __GET_UNSAFE_STACK_GUARD()       (size_t) __THREAD_GETMEM_L(195)
-# define __SET_UNSAFE_STACK_GUARD(value)  __THREAD_SETMEM_L(195, value)
-
 #else
-// The unsafe stack is stored in a thread-local variable on these platforms
+
+  /* TODO: To make accessing the unsafe stack pointer faster, we plan to
+   * eventually store it directly in the thread control block data structure on
+   * platforms where this structure is pointed to by %fs or %gs. This is exactly
+   * the same mechanism as currently being used by the traditional stack
+   * protector pass to store the stack guard (see getStackCookieLocation()
+   * function above). Doing so requires changing the tcbhead_t struct in glibc
+   * on Linux and tcb struct in libc on FreeBSD.
+   */
+
+// The unsafe stack is stored in a thread-local variable on all other platforms
 extern "C" {
   __attribute__((visibility ("default")))
   __thread void  *__llvm__unsafe_stack_ptr = 0;
 }
 
+# define __GET_UNSAFE_STACK_PTR()         __llvm__unsafe_stack_ptr
+# define __SET_UNSAFE_STACK_PTR(value)    __llvm__unsafe_stack_ptr = (value)
+
+#endif
+
+// Per-thread unsafe stack information. It's not frequently accessed, so there
+// it can be kept out of the tcb in normal thread-local variables.
 __thread void  *unsafe_stack_start = 0;
 __thread size_t unsafe_stack_size = 0;
 __thread size_t unsafe_stack_guard = 0;
-
-# define __GET_UNSAFE_STACK_PTR()         __llvm__unsafe_stack_ptr
-# define __SET_UNSAFE_STACK_PTR(value)    __llvm__unsafe_stack_ptr = (value)
 
 # define __GET_UNSAFE_STACK_START()       unsafe_stack_start
 # define __SET_UNSAFE_STACK_START(value)  unsafe_stack_start = (value)
@@ -136,8 +122,6 @@ __thread size_t unsafe_stack_guard = 0;
 
 # define __GET_UNSAFE_STACK_GUARD()       unsafe_stack_guard
 # define __SET_UNSAFE_STACK_GUARD(value)  unsafe_stack_guard = (value)
-
-#endif
 
 static inline void *unsafe_stack_alloc(size_t size, size_t guard) {
   void *addr =
