@@ -113,9 +113,9 @@ extern "C" {
 
 // Per-thread unsafe stack information. It's not frequently accessed, so there
 // it can be kept out of the tcb in normal thread-local variables.
-__thread void  *unsafe_stack_start = 0;
-__thread size_t unsafe_stack_size = 0;
-__thread size_t unsafe_stack_guard = 0;
+static __thread void  *unsafe_stack_start = 0;
+static __thread size_t unsafe_stack_size = 0;
+static __thread size_t unsafe_stack_guard = 0;
 
 # define __GET_UNSAFE_STACK_START()       unsafe_stack_start
 # define __SET_UNSAFE_STACK_START(value)  unsafe_stack_start = (value)
@@ -127,6 +127,8 @@ __thread size_t unsafe_stack_guard = 0;
 # define __SET_UNSAFE_STACK_GUARD(value)  unsafe_stack_guard = (value)
 
 static inline void *unsafe_stack_alloc(size_t size, size_t guard) {
+  // We need the mmap system call without any LD_PRELOAD overrides
+  // (such overrides might crash is they use the unsafe stack themselves)
   void *addr =
 #if defined(__APPLE__)
     mmap(
@@ -158,6 +160,8 @@ static inline void unsafe_stack_setup(void *start, size_t size, size_t guard) {
 
 static void unsafe_stack_free() {
   if (__GET_UNSAFE_STACK_START()) {
+    // We need the munmap system call without any LD_PRELOAD overrides
+    // (such overrides might crash is they use the unsafe stack themselves)
 #if defined(__APPLE__)
     munmap(
 #else
@@ -244,6 +248,9 @@ INTERCEPTOR(int, pthread_create, pthread_t *thread,
 void thread_cleanup_handler(void* _iter) {
   // We want to free the unsafe stack only after all other destructors
   // have already run. We force this function to be called multiple times.
+  // User destructors that might run more then PTHREAD_DESTRUCTOR_ITERATIONS-1
+  // times might still end up executing after the unsafe stack is deallocated,
+  // so such descructors must have __attribute__((no_safe_stack)).
   size_t iter = (size_t) _iter;
   if (iter < PTHREAD_DESTRUCTOR_ITERATIONS) {
     __d_pthread_setspecific(thread_cleanup_key, (void*) (iter + 1));
@@ -253,11 +260,12 @@ void thread_cleanup_handler(void* _iter) {
   }
 }
 
-int inited = 0;
+static int inited = 0;
 
 extern "C"
 __attribute__((visibility ("default")))
-#ifndef __linux__
+#ifndef __ELF__
+// On ELF platforms, the constructor is invoked using .preinit_array (see below)
 __attribute__((constructor(0)))
 #endif
 void __llvm__safestack_init() {
@@ -299,46 +307,32 @@ void __llvm__safestack_init() {
   }
 }
 
-#ifndef NDEBUG
-extern "C"
-__attribute__((visibility ("default")))
-void __llvm__safestack_dump() {
-  fprintf(stderr,
-          "Unsafe stack addr = %p, ptr = %p, size = 0x%lx, guard = 0x%lx\n",
-          __GET_UNSAFE_STACK_START(), __GET_UNSAFE_STACK_PTR(),
-          __GET_UNSAFE_STACK_SIZE(), __GET_UNSAFE_STACK_GUARD());
+#ifdef __ELF__
+// Run safestack initialization before any other constructors.
+// FIXME: can we do something similar on non-ELF platforms, e.g., on Mac?
+extern "C" {
+__attribute__((section(".preinit_array"), used))
+void (*__llvm__safestack_preinit)(void) = __llvm__safestack_init;
 }
-
 #endif
 
 extern "C"
 __attribute__((visibility ("default")))
-__attribute__((noinline))
 void *__safestack_get_unsafe_stack_start() {
   return __GET_UNSAFE_STACK_START();
 }
 
 extern "C"
 __attribute__((visibility ("default")))
-__attribute__((noinline))
 void *__safestack_get_unsafe_stack_ptr() {
   return __GET_UNSAFE_STACK_PTR();
 }
 
 extern "C"
 __attribute__((visibility ("default")))
-__attribute__((noinline))
+__attribute__((noinline)) // required for __builtin_frame_address(0) to work
 void *__safestack_get_safe_stack_ptr() {
   return (char*) __builtin_frame_address(0) + 2*sizeof(void*);
 }
-
-#ifdef __linux__
-// Run safestack initialization before any other constructors
-// FIXME: can we do something similar on Mac or FreeBSD?
-extern "C" {
-__attribute__((section(".preinit_array"), used))
-void (*__llvm__safestack_preinit)(void) = __llvm__safestack_init;
-}
-#endif
 
 } // namespace __llvm__safestack
