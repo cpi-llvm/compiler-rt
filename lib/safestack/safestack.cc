@@ -128,15 +128,18 @@ __thread size_t unsafe_stack_guard = 0;
 
 static inline void *unsafe_stack_alloc(size_t size, size_t guard) {
   void *addr =
-#if defined(__linux__)
-    (void*) syscall(SYS_mmap,
-#else
+#if defined(__APPLE__)
     mmap(
+#else
+    (void*) syscall(SYS_mmap,
 #endif
               NULL, size + guard, PROT_WRITE  | PROT_READ,
               MAP_PRIVATE | MAP_ANON
-#if defined(__linux__)
-              | MAP_STACK | MAP_GROWSDOWN
+#ifdef MAP_STACK
+              | MAP_STACK
+#endif
+#ifdef MAP_GROWSDOWN
+              | MAP_GROWSDOWN
 #endif
               , -1, 0);
   mprotect(addr, guard, PROT_NONE);
@@ -155,10 +158,10 @@ static inline void unsafe_stack_setup(void *start, size_t size, size_t guard) {
 
 static void unsafe_stack_free() {
   if (__GET_UNSAFE_STACK_START()) {
-#if defined(__linux__)
-    syscall(SYS_munmap,
-#else
+#if defined(__APPLE__)
     munmap(
+#else
+    syscall(SYS_munmap,
 #endif
       (char*) __GET_UNSAFE_STACK_START() - __GET_UNSAFE_STACK_GUARD(),
       __GET_UNSAFE_STACK_SIZE() + __GET_UNSAFE_STACK_GUARD());
