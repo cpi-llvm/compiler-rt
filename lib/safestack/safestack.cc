@@ -36,6 +36,28 @@
 /// size rlimit is set to infinity.
 #define DEFAULT_UNSAFE_STACK_SIZE 0x2800000
 
+
+// define MAP_STACK if undefined, this flag is used as a hint
+#ifndef MAP_STACK
+# define MAP_STACK 0
+#endif
+
+// define MAP_GROWSDOWN if undefined, this flag is used as a hint
+#ifndef MAP_GROWSDOWN
+# define MAP_GROWSDOWN 0
+#endif
+
+// define mmap wrapper, on Apple you can't override the mmap symbol
+// but on Linux it is possible, so we use syscall to ensure calling
+// kernel's mmap
+#if defined(__APPLE__)
+# define safestack_mmap(Args...) mmap(Args)
+# define safestack_munmap(Args...) munmap(Args)
+#else
+# define safestack_mmap(Args...) (void *)syscall(SYS_mmap, Args)
+# define safestack_munmap(Args...) (void *)syscall(SYS_munmap, Args)
+#endif
+
 #include "interception/interception.h"
 
 namespace __llvm__safestack {
@@ -129,21 +151,8 @@ static __thread size_t unsafe_stack_guard = 0;
 static inline void *unsafe_stack_alloc(size_t size, size_t guard) {
   // We need the mmap system call without any LD_PRELOAD overrides
   // (such overrides might crash is they use the unsafe stack themselves)
-  void *addr =
-#if defined(__APPLE__)
-    mmap(
-#else
-    (void*) syscall(SYS_mmap,
-#endif
-              NULL, size + guard, PROT_WRITE  | PROT_READ,
-              MAP_PRIVATE | MAP_ANON
-#ifdef MAP_STACK
-              | MAP_STACK
-#endif
-#ifdef MAP_GROWSDOWN
-              | MAP_GROWSDOWN
-#endif
-              , -1, 0);
+  void *addr = safestack_mmap(NULL, size + guard, PROT_WRITE  | PROT_READ,
+                MAP_PRIVATE | MAP_ANON | MAP_STACK | MAP_GROWSDOWN, -1, 0);
   mprotect(addr, guard, PROT_NONE);
   return (char*) addr + guard;
 }
@@ -162,11 +171,7 @@ static void unsafe_stack_free() {
   if (__GET_UNSAFE_STACK_START()) {
     // We need the munmap system call without any LD_PRELOAD overrides
     // (such overrides might crash is they use the unsafe stack themselves)
-#if defined(__APPLE__)
-    munmap(
-#else
-    syscall(SYS_munmap,
-#endif
+    safestack_munmap(
       (char*) __GET_UNSAFE_STACK_START() - __GET_UNSAFE_STACK_GUARD(),
       __GET_UNSAFE_STACK_SIZE() + __GET_UNSAFE_STACK_GUARD());
   }
