@@ -153,6 +153,10 @@ static inline void *unsafe_stack_alloc(size_t size, size_t guard) {
   // (such overrides might crash is they use the unsafe stack themselves)
   void *addr = safestack_mmap(NULL, size + guard, PROT_WRITE  | PROT_READ,
                 MAP_PRIVATE | MAP_ANON | MAP_STACK | MAP_GROWSDOWN, -1, 0);
+
+  if (addr == MAP_FAILED)
+    return nullptr;
+
   mprotect(addr, guard, PROT_NONE);
   return (char*) addr + guard;
 }
@@ -238,6 +242,11 @@ INTERCEPTOR(int, pthread_create, pthread_t *thread,
   assert((guard & (PAGE_SIZE-1)) == 0);
 
   void *addr = unsafe_stack_alloc(size, guard);
+  if (!addr) {
+    // failed to allocate the unsafe stack
+    errno = EAGAIN;
+    return -1;
+  }
   struct tinfo *tinfo = (struct tinfo*) (
         ((char*)addr) + size - sizeof(struct tinfo));
   tinfo->start_routine = start_routine;
@@ -290,6 +299,10 @@ void __llvm__safestack_init() {
 
   // Allocate unsafe stack for main thread
   void *addr = unsafe_stack_alloc(size, guard);
+  if (!addr)
+    // Failed to allocate the unsafe stack.
+    abort();
+
   unsafe_stack_setup(addr, size, guard);
 
   // Initialize pthread interceptors for thread allocation
