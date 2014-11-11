@@ -22,6 +22,8 @@
 #include <sys/user.h>
 #include <sys/resource.h>
 #include <pthread.h>
+#include <errno.h>
+#include <stdlib.h>
 
 #if defined(__linux__)
 #include <unistd.h>
@@ -55,7 +57,7 @@
 # define safestack_munmap(Args...) munmap(Args)
 #else
 # define safestack_mmap(Args...) (void *)syscall(SYS_mmap, Args)
-# define safestack_munmap(Args...) (void *)syscall(SYS_munmap, Args)
+# define safestack_munmap(Args...) (int)syscall(SYS_munmap, Args)
 #endif
 
 #include "interception/interception.h"
@@ -175,7 +177,7 @@ static void unsafe_stack_free() {
   if (__GET_UNSAFE_STACK_START()) {
     // We need the munmap system call without any LD_PRELOAD overrides
     // (such overrides might crash is they use the unsafe stack themselves)
-    safestack_munmap(
+    (void)safestack_munmap(
       (char*) __GET_UNSAFE_STACK_START() - __GET_UNSAFE_STACK_GUARD(),
       __GET_UNSAFE_STACK_SIZE() + __GET_UNSAFE_STACK_GUARD());
   }
