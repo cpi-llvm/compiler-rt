@@ -283,12 +283,12 @@ __attribute__((visibility ("default")))
 __attribute__((constructor(0)))
 #endif
 void __llvm__safestack_init() {
-  static int inited = 0;
+  static int initialized = 0;
 
-  if (inited)
+  if (initialized)
     return;
 
-  inited = 1;
+  initialized = 1;
 
   // Determine the stack size for the main thread.
   size_t size = DEFAULT_UNSAFE_STACK_SIZE;
