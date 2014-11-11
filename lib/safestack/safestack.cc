@@ -274,8 +274,6 @@ void thread_cleanup_handler(void* _iter) {
   }
 }
 
-static int inited = 0;
-
 extern "C"
 __attribute__((visibility ("default")))
 #ifndef __ELF__
@@ -283,6 +281,8 @@ __attribute__((visibility ("default")))
 __attribute__((constructor(0)))
 #endif
 void __llvm__safestack_init() {
+  static int inited = 0;
+
   if (inited)
     return;
 
