@@ -1,4 +1,4 @@
-// RUN: %clang_safestack %s -o -lpthread %t
+// RUN: %clang_safestack %s -pthread -o %t
 // RUN: %run %t
 
 #include <stdlib.h>
