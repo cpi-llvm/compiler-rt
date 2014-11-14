@@ -127,11 +127,11 @@ __DECLARE_WRAPPER(pthread_setspecific)
 // The unsafe stack is stored in a thread-local variable on all other platforms
 extern "C" {
   __attribute__((visibility ("default")))
-  __thread void  *__llvm__unsafe_stack_ptr = 0;
+  __thread void  *__safestack_unsafe_stack_ptr = 0;
 }
 
-# define __GET_UNSAFE_STACK_PTR()         __llvm__unsafe_stack_ptr
-# define __SET_UNSAFE_STACK_PTR(value)    __llvm__unsafe_stack_ptr = (value)
+# define __GET_UNSAFE_STACK_PTR()         __safestack_unsafe_stack_ptr
+# define __SET_UNSAFE_STACK_PTR(value)    __safestack_unsafe_stack_ptr = (value)
 
 #endif
 
@@ -282,7 +282,7 @@ __attribute__((visibility ("default")))
 // On ELF platforms, the constructor is invoked using .preinit_array (see below)
 __attribute__((constructor(0)))
 #endif
-void __llvm__safestack_init() {
+void __safestack_init() {
   static int initialized = 0;
 
   if (initialized)
@@ -332,7 +332,7 @@ void __llvm__safestack_init() {
 // FIXME: can we do something similar on non-ELF platforms, e.g., on Mac?
 extern "C" {
 __attribute__((section(".preinit_array"), used))
-void (*__llvm__safestack_preinit)(void) = __llvm__safestack_init;
+void (*__safestack_preinit)(void) = __safestack_init;
 }
 #endif
 
