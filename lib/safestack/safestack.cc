@@ -18,6 +18,7 @@
 #include <assert.h>
 #include <dlfcn.h>
 #include <limits.h>
+#include <sys/param.h>
 #include <sys/mman.h>
 #include <sys/user.h>
 #include <sys/resource.h>
@@ -112,6 +113,36 @@ __DECLARE_WRAPPER(pthread_setspecific)
 // The following locations are platform-specific
 # define __GET_UNSAFE_STACK_PTR()         (void*) __THREAD_GETMEM_L(192)
 # define __SET_UNSAFE_STACK_PTR(value)    __THREAD_SETMEM_L(192, value)
+
+#elif defined(__FreeBSD__) && defined(__i386__)
+
+# define __GET_UNSAFE_STACK_PTR() ({                            \
+      void *__ptr;                                              \
+      __asm __volatile("movq %%gs:0x0C, %0"                     \
+                       : "=r" (__ptr));                         \
+      __ptr;                                                    \
+    })
+
+# define __SET_UNSAFE_STACK_PTR(value) do {                     \
+    void *__ptr = (value);                                      \
+    __asm __volatile("movq %0, %%gs:0x0C"                       \
+                     : "r" (__ptr));                            \
+  } while (0)
+
+#elif defined(__FreeBSD__) && defined(__x86_64__)
+
+# define __GET_UNSAFE_STACK_PTR() ({                            \
+      void *__ptr;                                              \
+      __asm __volatile("movq %%fs:0x18, %0"                     \
+                       : "=r" (__ptr));                         \
+      __ptr;                                                    \
+    })
+
+# define __SET_UNSAFE_STACK_PTR(value) do {                     \
+    void *__ptr = (value);                                      \
+    __asm __volatile("movq %0, %%fs:0x18"                       \
+                     : "r" (__ptr));                            \
+  } while (0)
 
 #else
 
