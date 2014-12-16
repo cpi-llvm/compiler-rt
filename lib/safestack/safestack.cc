@@ -309,10 +309,7 @@ void thread_cleanup_handler(void* _iter) {
 
 extern "C"
 __attribute__((visibility ("default")))
-#ifndef __ELF__
-// On ELF platforms, the constructor is invoked using .preinit_array (see below)
 __attribute__((constructor(0)))
-#endif
 void __safestack_init() {
   static int initialized = 0;
 
@@ -357,15 +354,6 @@ void __safestack_init() {
     __d_pthread_key_create(&thread_cleanup_key, thread_cleanup_handler);
   }
 }
-
-#ifdef __ELF__
-// Run safestack initialization before any other constructors.
-// FIXME: can we do something similar on non-ELF platforms, e.g., on Mac?
-extern "C" {
-__attribute__((section(".preinit_array"), used))
-void (*__safestack_preinit)(void) = __safestack_init;
-}
-#endif
 
 extern "C"
 __attribute__((visibility ("default")))

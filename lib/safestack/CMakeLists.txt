@@ -22,5 +22,12 @@ else()
               $<TARGET_OBJECTS:RTInterception.${arch}>
       CFLAGS ${SAFESTACK_CFLAGS})
       add_dependencies(safestack clang_rt.safestack-${arch})
+
+      add_compiler_rt_runtime(clang_rt.safestack_preinit-${arch} ${arch} STATIC
+      SOURCES safestack-preinit.c
+              $<TARGET_OBJECTS:RTInterception.${arch}>
+      CFLAGS ${SAFESTACK_CFLAGS})
+      add_dependencies(safestack clang_rt.safestack_preinit-${arch})
+
   endforeach()
 endif()
