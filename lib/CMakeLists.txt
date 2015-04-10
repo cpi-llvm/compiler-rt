@@ -9,6 +9,7 @@ if(COMPILER_RT_HAS_SANITIZER_COMMON)
   add_subdirectory(sanitizer_common)
   add_subdirectory(lsan)
   add_subdirectory(ubsan)
+  add_subdirectory(safestack)
 endif()
 
 if(COMPILER_RT_HAS_ASAN)
@@ -33,9 +34,3 @@ if(COMPILER_RT_HAS_TSAN)
   add_subdirectory(tsan)
   add_subdirectory(tsan/dd)
 endif()
-
-if(COMPILER_RT_HAS_UBSAN)
-  add_subdirectory(ubsan)
-endif()
-
-add_subdirectory(safestack)
