@@ -17,3 +17,4 @@ SubDirs += lsan
 SubDirs += profile
 SubDirs += sanitizer_common
 SubDirs += ubsan
+SubDirs += safestack
