@@ -356,21 +356,18 @@ void __safestack_init() {
 
 extern "C"
 __attribute__((visibility ("default")))
-void *__safestack_get_unsafe_stack_start() {
+void *get_unsafe_stack_start() {
   return __GET_UNSAFE_STACK_START();
 }
 
 extern "C"
 __attribute__((visibility ("default")))
-void *__safestack_get_unsafe_stack_ptr() {
+void *get_unsafe_stack_ptr() {
   return __GET_UNSAFE_STACK_PTR();
 }
 
 extern "C"
 __attribute__((visibility ("default")))
-__attribute__((noinline)) // required for __builtin_frame_address(0) to work
-void *__safestack_get_safe_stack_ptr() {
-  return (char*) __builtin_frame_address(0) + 2*sizeof(void*);
+void *__set_unsafe_stack_ptr(void *ptr) {
+  return __SET_UNSAFE_STACK_PTR(ptr);
 }
-
-} // namespace __llvm__safestack
