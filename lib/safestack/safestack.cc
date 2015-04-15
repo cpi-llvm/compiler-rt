@@ -67,7 +67,7 @@ namespace __llvm__safestack {
 
 // We don't know whether pthread is linked in or not, so we resolve
 // all symbols from pthread that we use dynamically
-#define __DECLARE_WRAPPER(fn) __typeof__(fn)* __d_ ## fn = NULL;
+#define __DECLARE_WRAPPER(fn) static __typeof__(fn)* __d_ ## fn = NULL;
 
 __DECLARE_WRAPPER(pthread_attr_init)
 __DECLARE_WRAPPER(pthread_attr_destroy)
@@ -216,7 +216,7 @@ static void unsafe_stack_free() {
 }
 
 /// Thread data for the cleanup handler
-pthread_key_t thread_cleanup_key;
+static pthread_key_t thread_cleanup_key;
 
 /// Safe stack per-thread information passed to the thread_start function
 struct tinfo {
@@ -250,10 +250,45 @@ static void* thread_start(void *arg) {
   return start_routine(start_routine_arg);
 }
 
+/// Thread-specific data destructor
+static void thread_cleanup_handler(void* _iter) {
+  // We want to free the unsafe stack only after all other destructors
+  // have already run. We force this function to be called multiple times.
+  // User destructors that might run more then PTHREAD_DESTRUCTOR_ITERATIONS-1
+  // times might still end up executing after the unsafe stack is deallocated,
+  // so such descructors must have __attribute__((no_safe_stack)).
+  size_t iter = (size_t) _iter;
+  if (iter < PTHREAD_DESTRUCTOR_ITERATIONS) {
+    __d_pthread_setspecific(thread_cleanup_key, (void*) (iter + 1));
+  } else {
+    // This is the last iteration
+    unsafe_stack_free();
+  }
+}
+
+} // namespace __llvm__safestack
+
+using namespace __llvm__safestack;
+
+/// Safestack initialization flag.
+/// NOTE: this variable must be static, see a note in the ptrhead_create
+/// interceptror below.
+static int __safestack_initialized = 0;
+
 /// Intercept thread creation operation to allocate and setup the unsafe stack
 INTERCEPTOR(int, pthread_create, pthread_t *thread,
             const pthread_attr_t *attr,
             void *(*start_routine)(void*), void *arg) {
+
+  // NOTE: safestack library might be linked in multiple shared libraris that
+  // are loaded in a process. In such cases REAL(pthread_create) would resolve
+  // to the version of this same interceptor from the next safestack-enabled
+  // shared library. The static __safestack_initizlierd is local to each
+  // individual instance of the safestack runtime, but it will be set to 1
+  // for the first instance only. For all other instances, we just forward the
+  // call through, to eventually call the real pthread_create.
+  if (!__safestack_initialized)
+    return REAL(pthread_create)(thread, attr, start_routine, arg);
 
   size_t size = 0;
   size_t guard = 0;
@@ -291,32 +326,26 @@ INTERCEPTOR(int, pthread_create, pthread_t *thread,
   return REAL(pthread_create)(thread, attr, thread_start, tinfo);
 }
 
-/// Thread-specific data destructor
-void thread_cleanup_handler(void* _iter) {
-  // We want to free the unsafe stack only after all other destructors
-  // have already run. We force this function to be called multiple times.
-  // User destructors that might run more then PTHREAD_DESTRUCTOR_ITERATIONS-1
-  // times might still end up executing after the unsafe stack is deallocated,
-  // so such descructors must have __attribute__((no_safe_stack)).
-  size_t iter = (size_t) _iter;
-  if (iter < PTHREAD_DESTRUCTOR_ITERATIONS) {
-    __d_pthread_setspecific(thread_cleanup_key, (void*) (iter + 1));
-  } else {
-    // This is the last iteration
-    unsafe_stack_free();
-  }
+extern "C"
+__attribute__((visibility ("default")))
+void __safestack_init_interceptors() {
+  // Recursively get next pthread_create function for all instances of the
+  // safestack library in this process (see a note in the pthread_create
+  // interceptor above).
+  INTERCEPT_FUNCTION(pthread_create);
+  void *init_next = dlsym(RTLD_NEXT, "__safestack_init_interceptors");
+  if (init_next)
+    ((void (*)()) init_next)();
 }
 
 extern "C"
 __attribute__((visibility ("default")))
 __attribute__((constructor(0)))
 void __safestack_init() {
-  static int initialized = 0;
-
-  if (initialized)
+  if (__safestack_initialized)
     return;
 
-  initialized = 1;
+  __safestack_initialized = 1;
 
   // Determine the stack size for the main thread.
   size_t size = DEFAULT_UNSAFE_STACK_SIZE;
@@ -335,7 +364,7 @@ void __safestack_init() {
   unsafe_stack_setup(addr, size, guard);
 
   // Initialize pthread interceptors for thread allocation
-  INTERCEPT_FUNCTION(pthread_create);
+  __safestack_init_interceptors();
 
   #define __FIND_FUNCTION(fn) \
     __d_ ## fn = __extension__ (__typeof__(__d_ ## fn)) dlsym(RTLD_DEFAULT, #fn);
