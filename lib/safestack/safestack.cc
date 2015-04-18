@@ -219,6 +219,26 @@ static void* thread_start(void *arg) {
   return start_routine(start_routine_arg);
 }
 
+/// Thread-specific data destructor
+void thread_cleanup_handler(void* _iter) {
+  // We want to free the unsafe stack only after all other destructors
+  // have already run. We force this function to be called multiple times.
+  // User destructors that might run more then PTHREAD_DESTRUCTOR_ITERATIONS-1
+  // times might still end up executing after the unsafe stack is deallocated,
+  // so such descructors must have __attribute__((no_safe_stack)).
+  size_t iter = (size_t) _iter;
+  if (iter < PTHREAD_DESTRUCTOR_ITERATIONS) {
+    __d_pthread_setspecific(thread_cleanup_key, (void*) (iter + 1));
+  } else {
+    // This is the last iteration
+    unsafe_stack_free();
+  }
+}
+
+} // namespace __llvm__safestack
+
+using namespace __llvm__safestack;
+
 /// Intercept thread creation operation to allocate and setup the unsafe stack
 INTERCEPTOR(int, pthread_create, pthread_t *thread,
             const pthread_attr_t *attr,
@@ -258,22 +278,6 @@ INTERCEPTOR(int, pthread_create, pthread_t *thread,
   tinfo->unsafe_stack_guard = guard;
 
   return REAL(pthread_create)(thread, attr, thread_start, tinfo);
-}
-
-/// Thread-specific data destructor
-void thread_cleanup_handler(void* _iter) {
-  // We want to free the unsafe stack only after all other destructors
-  // have already run. We force this function to be called multiple times.
-  // User destructors that might run more then PTHREAD_DESTRUCTOR_ITERATIONS-1
-  // times might still end up executing after the unsafe stack is deallocated,
-  // so such descructors must have __attribute__((no_safe_stack)).
-  size_t iter = (size_t) _iter;
-  if (iter < PTHREAD_DESTRUCTOR_ITERATIONS) {
-    __d_pthread_setspecific(thread_cleanup_key, (void*) (iter + 1));
-  } else {
-    // This is the last iteration
-    unsafe_stack_free();
-  }
 }
 
 // On ELF platforms, the constructor is invoked using .preinit_array. However,
@@ -346,5 +350,3 @@ __attribute__((noinline)) // required for __builtin_frame_address(0) to work
 void *__safestack_get_safe_stack_ptr() {
   return (char*) __builtin_frame_address(0) + 2*sizeof(void*);
 }
-
-} // namespace __llvm__safestack
