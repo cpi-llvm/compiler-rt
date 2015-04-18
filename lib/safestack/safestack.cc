@@ -324,8 +324,8 @@ void __safestack_init() {
   size_t guard = 4096;
 
   struct rlimit limit;
-  if (getrlimit(RLIMIT_STACK, &limit) != 0
-      || limit.rlim_cur == RLIM_INFINITY)
+  if (getrlimit(RLIMIT_STACK, &limit) == 0
+      && limit.rlim_cur != RLIM_INFINITY)
     size = limit.rlim_cur;
 
   // Allocate unsafe stack for main thread
