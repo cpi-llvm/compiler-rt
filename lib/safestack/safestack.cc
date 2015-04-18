@@ -62,8 +62,6 @@
 
 #include "interception/interception.h"
 
-namespace __llvm__safestack {
-
 // NOTE: The safestack library is linked in every executable and shared libary
 // that uses safestack. As a result, there might be multiple instances of the
 // safestack library in a process. Normally this is fine, as all symbols that
@@ -246,10 +244,6 @@ static void thread_cleanup_handler(void* _iter) {
     unsafe_stack_free();
   }
 }
-
-} // namespace __llvm__safestack
-
-using namespace __llvm__safestack;
 
 /// Intercept thread creation operation to allocate and setup the unsafe stack
 INTERCEPTOR(int, pthread_create, pthread_t *thread,
