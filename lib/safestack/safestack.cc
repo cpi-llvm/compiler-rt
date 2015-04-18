@@ -78,7 +78,7 @@ static int __safestack_initialized = 0;
 
 // We don't know whether pthread is linked in or not, so we resolve
 // all symbols from pthread that we use dynamically
-#define __DECLARE_WRAPPER(fn) __typeof__(fn)* __d_ ## fn = NULL;
+#define __DECLARE_WRAPPER(fn) static __typeof__(fn)* __d_ ## fn = NULL;
 
 __DECLARE_WRAPPER(pthread_attr_init)
 __DECLARE_WRAPPER(pthread_attr_destroy)
@@ -197,7 +197,7 @@ static void unsafe_stack_free() {
 }
 
 /// Thread data for the cleanup handler
-pthread_key_t thread_cleanup_key;
+static pthread_key_t thread_cleanup_key;
 
 /// Safe stack per-thread information passed to the thread_start function
 struct tinfo {
@@ -232,7 +232,7 @@ static void* thread_start(void *arg) {
 }
 
 /// Thread-specific data destructor
-void thread_cleanup_handler(void* _iter) {
+static void thread_cleanup_handler(void* _iter) {
   // We want to free the unsafe stack only after all other destructors
   // have already run. We force this function to be called multiple times.
   // User destructors that might run more then PTHREAD_DESTRUCTOR_ITERATIONS-1
