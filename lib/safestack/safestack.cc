@@ -64,6 +64,18 @@
 
 namespace __llvm__safestack {
 
+// NOTE: The safestack library is linked in every executable and shared libary
+// that uses safestack. As a result, there might be multiple instances of the
+// safestack library in a process. Normally this is fine, as all symbols that
+// are visible externally will point to the main (first) instance. In
+// particular, __safestack_init will only set static __safestack_initialized
+// variable in the main instance. However, __safestack_init might be invoked
+// multiple times. Also, REAL() macro from interception.h (which relies on
+// dlsym(RTLD_NEXT, ...)) may invoke non-main instances of its corresponding
+// INTERCEPTOR function. We use __safestack_initialized variable to detect and
+// handle all such cases.
+static int __safestack_initialized = 0;
+
 // We don't know whether pthread is linked in or not, so we resolve
 // all symbols from pthread that we use dynamically
 #define __DECLARE_WRAPPER(fn) __typeof__(fn)* __d_ ## fn = NULL;
@@ -243,6 +255,8 @@ using namespace __llvm__safestack;
 INTERCEPTOR(int, pthread_create, pthread_t *thread,
             const pthread_attr_t *attr,
             void *(*start_routine)(void*), void *arg) {
+  if (!__safestack_initialized)
+    return REAL(pthread_create)(thread, attr, start_routine, arg);
 
   size_t size = 0;
   size_t guard = 0;
@@ -280,6 +294,18 @@ INTERCEPTOR(int, pthread_create, pthread_t *thread,
   return REAL(pthread_create)(thread, attr, thread_start, tinfo);
 }
 
+extern "C"
+__attribute__((visibility ("default")))
+void __safestack_init_interceptors() {
+  // Recursively get next pthread_create function for all instances of the
+  // safestack library in this process (see comment for the
+  // __safestack_initialized variable above).
+  INTERCEPT_FUNCTION(pthread_create);
+  void *init_next = dlsym(RTLD_NEXT, "__safestack_init_interceptors");
+  if (init_next)
+    ((void (*)()) init_next)();
+}
+
 // On ELF platforms, the constructor is invoked using .preinit_array. However,
 // .preinit_array is not supported in shared libraries, so we still mark
 // __safestack_init as a constructor to support linking safestack-enabled
@@ -288,12 +314,10 @@ extern "C"
 __attribute__((visibility ("default")))
 __attribute__((constructor(0)))
 void __safestack_init() {
-  static int initialized = 0;
-
-  if (initialized)
+  if (__safestack_initialized)
     return;
 
-  initialized = 1;
+  __safestack_initialized = 1;
 
   // Determine the stack size for the main thread.
   size_t size = DEFAULT_UNSAFE_STACK_SIZE;
@@ -313,7 +337,7 @@ void __safestack_init() {
   unsafe_stack_setup(addr, size, guard);
 
   // Initialize pthread interceptors for thread allocation
-  INTERCEPT_FUNCTION(pthread_create);
+  __safestack_init_interceptors();
 
   #define __FIND_FUNCTION(fn) \
     __d_ ## fn = __extension__ (__typeof__(__d_ ## fn)) dlsym(RTLD_DEFAULT, #fn);
