@@ -274,13 +274,12 @@ INTERCEPTOR(int, pthread_create, pthread_t *thread,
   return REAL(pthread_create)(thread, attr, thread_start, tinfo);
 }
 
-// On ELF platforms, the constructor is invoked using .preinit_array. However,
-// .preinit_array is not supported in shared libraries, so we still mark
-// __safestack_init as a constructor to support linking safestack-enabled
-// shared library into non-safestack-aware main executable.
 extern "C"
 __attribute__((visibility ("default")))
+#ifndef __ELF__
+// On ELF platforms, the constructor is invoked using .preinit_array (see below)
 __attribute__((constructor(0)))
+#endif
 void __safestack_init() {
   static int initialized = 0;
 
@@ -325,6 +324,15 @@ void __safestack_init() {
     __d_pthread_key_create(&thread_cleanup_key, thread_cleanup_handler);
   }
 }
+
+#ifdef __ELF__
+// Run safestack initialization before any other constructors.
+// FIXME: can we do something similar on non-ELF platforms, e.g., on Mac?
+extern "C" {
+__attribute__((section(".preinit_array"), used))
+void (*__safestack_preinit)(void) = __safestack_init;
+}
+#endif
 
 extern "C"
 __attribute__((visibility ("default")))
