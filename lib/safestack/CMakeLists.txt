@@ -5,6 +5,7 @@ set(SAFESTACK_SOURCES safestack.cc)
 include_directories(..)
 
 set(SAFESTACK_CFLAGS ${SANITIZER_COMMON_CFLAGS})
+set(SAFESTACK_SHARED_CFLAGS ${SAFESTACK_CFLAGS} -DSAFESTACK_SHARED -fPIC)
 
 if(APPLE)
   # Build universal binary on APPLE.
@@ -23,6 +24,13 @@ else()
               $<TARGET_OBJECTS:RTInterception.${arch}>
               $<TARGET_OBJECTS:RTSanitizerCommon.${arch}>
       CFLAGS ${SAFESTACK_CFLAGS})
-    add_dependencies(safestack clang_rt.safestack-${arch})
+    add_compiler_rt_runtime(clang_rt.safestack_shared-${arch} ${arch} STATIC
+      SOURCES ${SAFESTACK_SOURCES}
+              $<TARGET_OBJECTS:RTInterception.${arch}>
+              $<TARGET_OBJECTS:RTSanitizerCommon.${arch}>
+      CFLAGS ${SAFESTACK_SHARED_CFLAGS})
+    add_dependencies(safestack
+        clang_rt.safestack-${arch}
+        clang_rt.safestack-${arch}-pic)
   endforeach()
 endif()

@@ -88,6 +88,9 @@ static __thread void *unsafe_stack_start = nullptr;
 static __thread size_t unsafe_stack_size = 0;
 static __thread size_t unsafe_stack_guard = 0;
 
+// Safestack initialized flag (see commend in __safestack_init)
+static int safestack_inited = 0;
+
 static inline void *unsafe_stack_alloc(size_t size, size_t guard) {
   CHECK_GE(size + guard, size);
   void *addr = MmapOrDie(size + guard, "unsafe_stack_alloc");
@@ -167,6 +170,20 @@ static void thread_cleanup_handler(void *_iter) {
 INTERCEPTOR(int, pthread_create, pthread_t *thread,
             const pthread_attr_t *attr,
             void *(*start_routine)(void*), void *arg) {
+#if defined(SAFESTACK_SHARED)
+  // When safestack runtime is linked in a process multiple times, the
+  // pthread_create interceptor might be called multiple times as well - once
+  // for each of the runtime instances. We ensure that only the main instance
+  // (i.e., the instance were __safestack_init symbol resolves to and where
+  // safestack_inited internal symbol is set) performs unsafe stack allocation,
+  // while all other instances merely forward the call (see also the comment
+  // in __safestack_init).
+  if (!safestack_inited) {
+    if (!REAL(pthread_create))
+      INTERCEPT_FUNCTION(pthread_create);
+    return REAL(pthread_create)(thread, attr, start_routine, arg);
+  }
+#endif
 
   size_t size = 0;
   size_t guard = 0;
@@ -200,11 +217,21 @@ INTERCEPTOR(int, pthread_create, pthread_t *thread,
 }
 
 extern "C" __attribute__((visibility("default")))
-#if !SANITIZER_CAN_USE_PREINIT_ARRAY
-// On ELF platforms, the constructor is invoked using .preinit_array (see below)
+#if defined(SAFESTACK_SHARED) || !SANITIZER_CAN_USE_PREINIT_ARRAY
+// On ELF platforms, the constructor in the main executable is invoked using
+// .preinit_array (see below)
 __attribute__((constructor(0)))
 #endif
 void __safestack_init() {
+  // __safestack_init might be called several times when safestack runtime is
+  // linked in a process multiple times (e.g., in a main executable and a shared
+  // library, or in multiple shared libraries). We ensure that the runtime is
+  // initialized only once.
+  if (safestack_inited)
+    return;
+
+  safestack_inited = 1;
+
   // Determine the stack size for the main thread.
   size_t size = kDefaultUnsafeStackSize;
   size_t guard = 4096;
@@ -221,14 +248,22 @@ void __safestack_init() {
   // Initialize pthread interceptors for thread allocation
   INTERCEPT_FUNCTION(pthread_create);
 
+  // Check if interception succeeded (it might fail e.g., on dlopen)
+  if (pthread_create == REAL(pthread_create)) {
+      RawWrite("SafeStack instrumentation failed to intercept pthread_create "
+               "(are you trying to dlopen safestack-instrumented library "
+               "into a non-safestack-instrumented process?)\n");
+      Die();
+  }
+
   // Setup the cleanup handler
   pthread_key_create(&thread_cleanup_key, thread_cleanup_handler);
 }
 
-#if SANITIZER_CAN_USE_PREINIT_ARRAY
+#if !defined(SAFESTACK_SHARED) && SANITIZER_CAN_USE_PREINIT_ARRAY
 // On ELF platforms, run safestack initialization before any other constructors.
-// On other platforms we use the constructor attribute to arrange to run our
-// initialization early.
+// On other platforms and in shared libraries, we use the constructor attribute
+// to arrange to run our initialization early.
 extern "C" {
 __attribute__((section(".preinit_array"),
                used)) void (*__safestack_preinit)(void) = __safestack_init;
